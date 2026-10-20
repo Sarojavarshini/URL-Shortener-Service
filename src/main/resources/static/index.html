@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkLite | URL Analytics</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1220; --panel:#121d30; --line:#263650; --text:#edf3ff; --muted:#a8b6cc; --accent:#6ee7c4; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:1100px; margin:0 auto; padding:32px 20px 60px; }
+    header { margin-bottom:28px; } h1 { margin:0 0 8px; font-size:30px; } p { color:var(--muted); }
+    .panel,.stat { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .form { display:flex; gap:10px; margin-top:18px; } input { flex:1; min-width:0; padding:13px 14px; border-radius:9px; border:1px solid var(--line); background:#0b1425; color:white; }
+    button { padding:12px 17px; border:0; border-radius:9px; background:var(--accent); color:#08251e; font-weight:bold; cursor:pointer; }
+    .stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; }
+    .label { color:var(--muted); font-size:13px; } .number { font-size:28px; margin-top:8px; font-weight:bold; }
+    .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; min-width:650px; } th,td { text-align:left; border-bottom:1px solid var(--line); padding:13px 10px; vertical-align:top; } th { color:var(--muted); font-size:12px; text-transform:uppercase; }
+    a { color:var(--accent); overflow-wrap:anywhere; } .message { margin-top:12px; color:var(--accent); overflow-wrap:anywhere; } .error { color:#ff9e9e; }
+    .small { font-size:12px; color:var(--muted); } .analytics { margin-top:18px; } .bar-row { display:grid; grid-template-columns:100px 1fr 30px; gap:10px; align-items:center; margin:10px 0; font-size:13px; }
+    .bar { height:10px; background:#24334b; border-radius:20px; overflow:hidden; } .bar span { display:block; height:100%; background:var(--accent); }
+    @media(max-width:650px) { .form { flex-direction:column; } .stats { grid-template-columns:1fr; } .wrap { padding:22px 14px; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LinkLite <span style="color:var(--accent)">↗</span></h1>
+    <p>Shorten long links, monitor clicks, and review your link performance.</p>
+  </header>
+  <section class="panel">
+    <h2 style="margin-top:0">Create a short link</h2>
+    <form id="shorten-form" class="form">
+      <input id="url-input" type="url" placeholder="https://example.com/your/long/link" required>
+      <button type="submit">Shorten URL</button>
+    </form>
+    <div id="message" class="message" aria-live="polite"></div>
+    <div class="small">Only valid HTTP and HTTPS URLs are accepted.</div>
+  </section>
+  <section class="stats">
+    <div class="stat"><div class="label">TOTAL SHORT LINKS</div><div id="total-urls" class="number">—</div></div>
+    <div class="stat"><div class="label">TOTAL CLICKS</div><div id="total-clicks" class="number">—</div></div>
+  </section>
+  <section class="panel">
+    <h2 style="margin-top:0">Your links</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Short link</th><th>Destination</th><th>Clicks</th><th>Created</th><th>Analytics</th></tr></thead>
+        <tbody id="links-body"><tr><td colspan="5">Loading links…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="analytics-panel" class="panel analytics" hidden>
+    <h2 id="analytics-title" style="margin-top:0">Click analytics</h2>
+    <p id="analytics-destination"></p>
+    <div id="daily-chart"></div>
+  </section>
+</div>
+<script>
+  const message = document.getElementById('message');
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(path, options) {
+    const response = await fetch(path, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  }
+  async function refresh() {
+    try {
+      const [summary, urls] = await Promise.all([api('/api/analytics/summary'), api('/api/urls')]);
+      document.getElementById('total-urls').textContent = summary.totalUrls;
+      document.getElementById('total-clicks').textContent = summary.totalClicks;
+      const body = document.getElementById('links-body');
+      if (!urls.length) {
+        body.innerHTML = '<tr><td colspan="5">No links yet. Create your first short link above.</td></tr>';
+        return;
+      }
+      body.innerHTML = urls.map(u => `<tr>
+        <td><a href="${escapeHtml(u.shortUrl)}" target="_blank" rel="noopener">${escapeHtml(u.shortUrl)}</a><br><button style="margin-top:7px;padding:6px 9px" onclick="copyLink('${escapeHtml(u.shortUrl)}')">Copy</button></td>
+        <td><a href="${escapeHtml(u.originalUrl)}" target="_blank" rel="noopener">${escapeHtml(u.originalUrl)}</a></td>
+        <td>${u.clicks}</td><td>${new Date(u.createdAt).toLocaleString()}</td>
+        <td><button onclick="showAnalytics('${escapeHtml(u.shortCode)}')">View</button></td></tr>`).join('');
+    } catch (error) {
+      message.textContent = error.message + ' — check that the Spring Boot server and MySQL are running.';
+      message.className = 'message error';
+    }
+  }
+  document.getElementById('shorten-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    message.className = 'message';
+    message.textContent = 'Creating short link…';
+    try {
+      const result = await api('/api/urls', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:document.getElementById('url-input').value})
+      });
+      message.innerHTML = `Created: <a href="${escapeHtml(result.shortUrl)}" target="_blank" rel="noopener">${escapeHtml(result.shortUrl)}</a>`;
+      document.getElementById('url-input').value = '';
+      await refresh();
+    } catch (error) {
+      message.textContent = error.message;
+      message.className = 'message error';
+    }
+  });
+  async function copyLink(url) {
+    try { await navigator.clipboard.writeText(url); message.textContent = 'Short link copied.'; }
+    catch { message.textContent = 'Copy was blocked by the browser. Select and copy the link manually: ' + url; }
+  }
+  async function showAnalytics(code) {
+    try {
+      const data = await api('/api/urls/' + encodeURIComponent(code) + '/analytics');
+      document.getElementById('analytics-panel').hidden = false;
+      document.getElementById('analytics-title').textContent = `Click analytics — ${data.shortCode}`;
+      document.getElementById('analytics-destination').textContent = `Destination: ${data.originalUrl} | Total clicks: ${data.totalClicks}`;
+      const chart = document.getElementById('daily-chart');
+      if (!data.dailyClicks.length) { chart.innerHTML = '<p>No clicks recorded yet. Open the short link to generate analytics.</p>'; return; }
+      const max = Math.max(...data.dailyClicks.map(d => d.clicks), 1);
+      chart.innerHTML = data.dailyClicks.map(d => `<div class="bar-row"><span>${escapeHtml(d.date)}</span><div class="bar"><span style="width:${(d.clicks/max)*100}%"></span></div><b>${d.clicks}</b></div>`).join('');
+    } catch (error) { message.textContent = error.message; message.className = 'message error'; }
+  }
+  refresh();
+</script>
+</body>
+</html>
