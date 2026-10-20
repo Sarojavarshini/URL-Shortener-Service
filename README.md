@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # LinkLite — URL Shortener Service
 
 A Java 17 + Spring Boot + MySQL internship project that shortens long URLs, redirects users, records clicks, and displays a simple analytics dashboard.
@@ -184,3 +185,6 @@ Use the `shortCode` returned from the create response to open the redirect URL a
 - Include a short architecture diagram and explain the create → save → redirect → track → analytics flow.
 - `spring.jpa.hibernate.ddl-auto=update` is convenient for local development; use database migrations and stricter configuration for production.
 - For a production-ready public service, add authentication/rate limiting, abuse reporting, link expiry, monitoring, and stronger collision handling. Do not deploy an unauthenticated URL shortener publicly without abuse controls.
+=======
+# URL-Shortener-Service
+>>>>>>> e247f389efea508c5b6334167347e3d8ac450cf5
